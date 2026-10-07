@@ -110,11 +110,14 @@ const TPL={
       // Phần III: 6 câu × 4 cột; hàng: '-', ',', 0..9. Dấu '-' chỉ ở cột 1; dấu ',' chỉ ở cột 2, 3
       for(let q=0;q<6;q++)for(let k=0;k<4;k++)g('p3',q,k,56.5+q*80.2+k*13.47,579.7,12,0,14.92,'-,'+DG,[[1],[0],[0],[0,1]][k]);
     }},
-  B:{name:'Phiếu ngang 40 câu (CHƯA hiệu chỉnh)',S:1,W:990,H:700,h:5,fid:[[30,30],[960,30],[960,670],[30,670]],n1:40,n2:0,n3:0,
+  B:{name:'Phiếu ngang 40 câu (SBD 6, Mã đề 3)',S:1,W:991,H:739,h:4,
+    fid:[[78,127],[904,127],[905,696],[78,696]],n1:40,n2:0,n3:0,   // tâm 4 ô vuông đen lớn ở 4 góc
     build(g){
-      for(let k=0;k<6;k++)g('sbd',0,k,50+k*28,60,10,0,20,DG);
-      for(let k=0;k<3;k++)g('made',0,k,260+k*28,60,10,0,20,DG);
-      for(let i=0;i<40;i++)g('p1',i,0,60+((i/10)|0)*230,330+(i%10)*26,4,36,0,'ABCD');
+      // Các ô vuông đen nhỏ phía trên/dưới từng khối chỉ là mốc phụ, app không dùng. Hàng 0-9 cách đều 24,44px.
+      for(let k=0;k<6;k++)g('sbd',0,k,242.5+k*24.4,319.5,10,0,24.44,DG);
+      for(let k=0;k<3;k++)g('made',0,k,120.5+k*24.4,319.5,10,0,24.44,DG);
+      // 4 khối × 10 câu (khối cách nhau 122px), mỗi câu 4 ô A-D
+      for(let i=0;i<40;i++)g('p1',i,0,437.5+((i/10)|0)*122,319.5+(i%10)*24.44,4,24.4,0,'ABCD');
     }}
 };
 const cur=()=>TPL[$('#tpl').value];
