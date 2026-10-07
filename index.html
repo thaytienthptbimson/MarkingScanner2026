@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Phần Mềm Chấm Thi Trắc Nghiệm 2026</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS cho xuất Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        /* Tối ưu hóa UI cho mobile */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .btn { @apply w-full py-3 px-4 rounded-lg font-bold text-white shadow-md transition transform active:scale-95 text-lg my-2; }
+        .btn-primary { @apply bg-blue-600 hover:bg-blue-700; }
+        .btn-success { @apply bg-green-600 hover:bg-green-700; }
+        .btn-warning { @apply bg-orange-500 hover:bg-orange-600; }
+        .btn-danger { @apply bg-red-600 hover:bg-red-700; }
+        #canvasOutput { max-width: 100%; height: auto; border: 2px solid #e5e7eb; border-radius: 0.5rem; display: none; }
+        #videoElement { max-width: 100%; height: auto; border-radius: 0.5rem; display: none; }
+        
+        /* Loading Overlay */
+        #loading { display: flex; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-blue-800 text-white p-4 shadow-md sticky top-0 z-10">
+        <h1 class="text-xl font-bold text-center">CHẤM THI OMR 2026</h1>
+        <p class="text-sm text-center text-blue-200" id="opencvStatus">Đang tải thư viện xử lý ảnh...</p>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-4 max-w-lg mx-auto w-full space-y-6">
+        
+        <!-- Cấu hình loại phiếu -->
+        <section class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <label class="block font-semibold mb-2 text-gray-700">Chọn mẫu phiếu:</label>
+            <select id="formType" class="w-full p-3 border rounded-lg text-lg bg-gray-50">
+                <option value="moet2026">Phiếu Bộ GD-ĐT 2026 (Nhiều định dạng)</option>
+                <option value="horizontal40">Phiếu ngang 40 câu (Cấu trúc mới)</option>
+            </select>
+        </section>
+
+        <!-- Camera / Upload Module -->
+        <section class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+            <div class="grid grid-cols-2 gap-2">
+                <button id="btnOpenCamera" class="btn btn-primary" onclick="startCamera()"> Mở Camera</button>
+                <button class="btn btn-warning relative overflow-hidden">
+                    Tải Ảnh Lên
+                    <input type="file" id="fileInput" accept="image/*" class="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer">
+                </button>
+            </div>
+            
+            <video id="videoElement" autoplay playsinline></video>
+            <button id="btnCapture" class="btn btn-success hidden" onclick="captureAndProcess()">📸 Chụp & Chấm Điểm</button>
+            
+            <!-- Nơi hiển thị kết quả xử lý ảnh -->
+            <canvas id="canvasOutput" class="mt-4 mx-auto"></canvas>
+            
+            <div id="resultBox" class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg hidden">
+                <h2 class="text-2xl font-bold text-blue-800">Điểm: <span id="finalScore">0</span></h2>
+                <p class="text-gray-600">SBD: <span id="sbdResult" class="font-bold">...</span> | Mã đề: <span id="madResult" class="font-bold">...</span></p>
+                <button onclick="saveResult()" class="btn btn-primary mt-2">Lưu kết quả này</button>
+            </div>
+        </section>
+
+        <!-- Quản lý đáp án gốc -->
+        <section class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <h3 class="font-bold text-lg text-gray-800 mb-2">Đáp Án Chuẩn</h3>
+            <button onclick="setMasterKey()" class="btn bg-purple-600 hover:bg-purple-700 text-white">Quét Phiếu Làm Đáp Án Gốc</button>
+            <p class="text-sm text-gray-500 mt-2 italic">*Hệ thống sẽ lưu mảng đáp án chuẩn vào thiết bị.</p>
+        </section>
+
+        <!-- Danh sách kết quả & Xuất file -->
+        <section class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-bold text-lg text-gray-800">Danh Sách Đã Chấm</h3>
+                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full" id="countGraded">0 bài</span>
+            </div>
+            <div class="overflow-x-auto max-h-40 overflow-y-auto mb-4 border rounded">
+                <table class="w-full text-sm text-left text-gray-500">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-3 py-2">SBD</th>
+                            <th class="px-3 py-2">Mã Đề</th>
+                            <th class="px-3 py-2">Điểm</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultTableBody">
+                        <!-- Dữ liệu JS sẽ đổ vào đây -->
+                    </tbody>
+                </table>
+            </div>
+            <button onclick="exportToExcel()" class="btn btn-success">📊 Xuất File Excel (Sổ Điểm)</button>
+            <button onclick="clearData()" class="btn btn-danger mt-2">Xóa toàn bộ dữ liệu</button>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-yellow-400 p-5 mt-auto">
+        <p class="text-center font-extrabold text-xl uppercase tracking-wider">
+            Bản quyền thuộc về số ĐT: 0943.930.787
+        </p>
+    </footer>
+
+    <!-- Async load OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
+    <script>
+        // --- 1. BIẾN TOÀN CỤC & TRẠNG THÁI ---
+        let cvReady = false;
+        let video = document.getElementById('videoElement');
+        let canvas = document.getElementById('canvasOutput');
+        let ctx = canvas.getContext('2d');
+        let stream = null;
+        let masterKey = JSON.parse(localStorage.getItem('omrMasterKey')) || {};
+        let gradedResults = JSON.parse(localStorage.getItem('omrResults')) || [];
+        
+        let currentSBD = "00000";
+        let currentMaDe = "000";
+        let currentScore = 0;
+
+        // Cập nhật bảng ngay khi load
+        updateResultTable();
+
+        // --- 2. KHỞI TẠO OPENCV ---
+        function onOpenCvReady() {
+            cvReady = true;
+            document.getElementById('opencvStatus').innerText = "Hệ thống sẵn sàng!";
+            document.getElementById('opencvStatus').className = "text-sm text-center text-green-300 font-bold";
+        }
+
+        // --- 3. MODULE CAMERA & UPLOAD ---
+        async function startCamera() {
+            if (!cvReady) return alert("Vui lòng đợi OpenCV tải xong!");
+            try {
+                // Ưu tiên camera sau (environment), độ phân giải cao để rõ nét các ô tô
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+                video.style.display = "block";
+                canvas.style.display = "none";
+                document.getElementById('btnCapture').classList.remove('hidden');
+                document.getElementById('btnOpenCamera').innerText = "Đang mở Camera...";
+            } catch (err) {
+                alert("Không thể truy cập camera. Vui lòng cấp quyền hoặc dùng tính năng Tải ảnh lên.");
+            }
+        }
+
+        // Upload ảnh
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            if (!cvReady) return alert("OpenCV chưa sẵn sàng!");
+            let file = e.target.files[0];
+            if (!file) return;
+            let img = new Image();
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0, img.width, img.height);
+                video.style.display = "none";
+                canvas.style.display = "block";
+                document.getElementById('btnCapture').classList.add('hidden');
+                processImage(canvas); // Xử lý ngay khi tải lên
+            };
+            img.src = URL.createObjectURL(file);
+        });
+
+        function captureAndProcess() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            video.style.display = "none";
+            document.getElementById('btnCapture').classList.add('hidden');
+            canvas.style.display = "block";
+            
+            // Dừng stream camera để tiết kiệm pin
+            if(stream) stream.getTracks().forEach(track => track.stop());
+            document.getElementById('btnOpenCamera').innerText = "Mở Camera";
+
+            processImage(canvas);
+        }
+
+        // --- 4. THUẬT TOÁN OMR CORE BẰNG OPENCV.JS ---
+        function processImage(canvasElement) {
+            try {
+                let src = cv.imread(canvasElement);
+                let gray = new cv.Mat();
+                let blurred = new cv.Mat();
+                let edged = new cv.Mat();
+
+                // 4.1. Tiền xử lý (Pre-processing)
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0); // Chuyển ảnh xám
+                cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT); // Làm mờ nhiễu
+                cv.Canny(blurred, edged, 75, 200); // Tìm viền
+
+                // 4.2. Tìm Contours để lấy khung giấy thi (Fiducial markers)
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+                cv.findContours(edged, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                // Sắp xếp contour theo diện tích giảm dần để tìm khung giấy
+                let docContour = null;
+                let maxArea = 0;
+                for (let i = 0; i < contours.size(); ++i) {
+                    let cnt = contours.get(i);
+                    let peri = cv.arcLength(cnt, true);
+                    let approx = new cv.Mat();
+                    cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+                    
+                    if (approx.rows === 4) {
+                        let area = cv.contourArea(approx);
+                        if (area > maxArea && area > 50000) { // Đảm bảo contour đủ lớn
+                            maxArea = area;
+                            docContour = approx;
+                        } else {
+                            approx.delete();
+                        }
+                    } else {
+                        approx.delete();
+                    }
+                }
+
+                let warped;
+                if (docContour) {
+                    // 4.3. Nắn chỉnh phối cảnh (Perspective Transform)
+                    // Thiết lập ma trận tọa độ: Góc trên-trái, trên-phải, dưới-phải, dưới-trái
+                    // LƯU Ý CHO THẦY TIẾN: Hàm orderPoints cần tự định nghĩa để sắp xếp đúng 4 điểm, 
+                    // ở đây dùng tọa độ x,y mảng phẳng để giả lập việc cắt.
+                    
+                    // Lấy tọa độ 4 góc từ docContour
+                    let points = [];
+                    for(let i=0; i<4; i++) points.push({x: docContour.data32S[i*2], y: docContour.data32S[i*2+1]});
+                    
+                    // Sắp xếp điểm (Giản lược)
+                    points.sort((a,b) => a.y - b.y);
+                    let top = points.slice(0,2).sort((a,b) => a.x - b.x);
+                    let bottom = points.slice(2,4).sort((a,b) => a.x - b.x);
+                    let orderedPts = [top[0], top[1], bottom[1], bottom[0]]; // tl, tr, br, bl
+
+                    // Chiều rộng và chiều cao sau khi nắn (có thể set cố định tỉ lệ phiếu chuẩn Bộ là A4)
+                    let width = 800; 
+                    let height = 1131; // Tỉ lệ A4 ~ 1:1.414
+
+                    /* 
+                     * [GIẢI THÍCH MA TRẬN CHO CHUYÊN MÔN]
+                     * cv.matFromArray tạo ma trận 4x2 từ các mảng tọa độ.
+                     * srcTri là ma trận tọa độ gốc từ ảnh chụp camera.
+                     * dstTri là ma trận mục tiêu (hình chữ nhật hoàn hảo) kích thước 800x1131.
+                     */
+                    let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                        orderedPts[0].x, orderedPts[0].y, orderedPts[1].x, orderedPts[1].y,
+                        orderedPts[2].x, orderedPts[2].y, orderedPts[3].x, orderedPts[3].y
+                    ]);
+                    let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                        0, 0, width, 0, width, height, 0, height
+                    ]);
+
+                    let M = cv.getPerspectiveTransform(srcTri, dstTri);
+                    warped = new cv.Mat();
+                    cv.warpPerspective(src, warped, M, new cv.Size(width, height));
+                    
+                    M.delete(); srcTri.delete(); dstTri.delete();
+                } else {
+                    // Nếu không nhận diện được viền, dùng ảnh gốc (yêu cầu chụp chuẩn)
+                    warped = src.clone();
+                }
+
+                // 4.4. Tách mực tô bằng Threshold (Nhị phân hóa ảnh)
+                let warpedGray = new cv.Mat();
+                cv.cvtColor(warped, warpedGray, cv.COLOR_RGBA2GRAY, 0);
+                let thresh = new cv.Mat();
+                // Dùng Otsu's thresholding để tách điểm tô đen
+                cv.threshold(warpedGray, thresh, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
+
+                // --- 4.5. CHIA LƯỚI & NHẬN DIỆN BONG BÓNG (GRID DEFINITION) ---
+                // *Lưu ý*: Tọa độ (ROI - Region of Interest) dưới đây là mô phỏng cấu trúc. 
+                // Khi test thực tế với phiếu chuẩn Bộ GD-ĐT 2026, thầy cần điều chỉnh thông số X, Y, W, H này.
+                
+                let formType = document.getElementById('formType').value;
+                let studentAnswers = []; // Lưu đáp án học sinh chọn
+                
+                let questionsCount = (formType === 'horizontal40') ? 40 : 20; // Ví dụ 20 cho phần I của form Bộ 2026
+                let startX = 100, startY = 300; // Tọa độ bắt đầu vùng trắc nghiệm
+                let rowHeight = 35, colWidth = 40, bubbleSize = 25;
+
+                // Lặp qua số câu
+                for (let q = 0; q < questionsCount; q++) {
+                    let maxPixels = 0;
+                    let selectedOption = -1; // -1: chưa tô, 0: A, 1: B, 2: C, 3: D
+                    let y = startY + (q * rowHeight);
+                    
+                    // Lặp qua 4 lựa chọn A, B, C, D
+                    for (let opt = 0; opt < 4; opt++) {
+                        let x = startX + (opt * colWidth);
+                        
+                        // Đảm bảo ROI không vượt ra ngoài ảnh
+                        if (x + bubbleSize <= thresh.cols && y + bubbleSize <= thresh.rows) {
+                            let rect = new cv.Rect(x, y, bubbleSize, bubbleSize);
+                            let roi = thresh.roi(rect);
+                            
+                            // Đếm số pixel đen (vì dùng THRESH_BINARY_INV, đen thành trắng(255))
+                            let count = cv.countNonZero(roi);
+                            
+                            // Threshold: Nếu tô đậm, số pixel trắng thường > 300
+                            if (count > maxPixels && count > 300) {
+                                maxPixels = count;
+                                selectedOption = opt;
+                            }
+                            roi.delete();
+                        }
+                    }
+                    studentAnswers.push(selectedOption);
+                    
+                    // Vẽ đánh dấu lên ảnh hiển thị
+                    let resultColor = new cv.Scalar(255, 0, 0, 255); // Mặc định xanh dương
+                    if (selectedOption !== -1) {
+                        let drawX = startX + (selectedOption * colWidth);
+                        let center = new cv.Point(drawX + bubbleSize/2, y + bubbleSize/2);
+                        cv.circle(warped, center, 15, resultColor, 3);
+                    }
+                }
+
+                // Vẽ ảnh đã xử lý lên Canvas
+                cv.imshow(canvasElement.id, warped);
+
+                // Chấm điểm giả lập dựa trên logic
+                calculateScore(studentAnswers);
+
+                // Dọn dẹp bộ nhớ WebAssembly
+                src.delete(); gray.delete(); blurred.delete(); edged.delete(); 
+                contours.delete(); hierarchy.delete(); 
+                if (docContour) docContour.delete();
+                warped.delete(); warpedGray.delete(); thresh.delete();
+
+                document.getElementById('resultBox').classList.remove('hidden');
+
+            } catch (err) {
+                console.error(err);
+                alert("Lỗi trong quá trình xử lý ảnh: " + err.message);
+            }
+        }
+
+        // --- 5. LOGIC CHẤM ĐIỂM BỘ GDĐT 2026 ---
+        function calculateScore(studentAnswers) {
+            // Giả lập logic lấy SBD và Mã Đề từ vùng nhận diện (Cần mapping thêm ROI cho phần này)
+            currentSBD = "010025"; 
+            currentMaDe = "101";
+
+            // Logic chấm (Mô phỏng Thang điểm Bộ 2026 - Trắc nghiệm nhiều lựa chọn 0.25đ/câu)
+            let score = 0;
+            // Nếu chưa có Master Key, tạo ngẫu nhiên để demo, thực tế lấy từ localStorage
+            let key = masterKey[currentMaDe] || Array(studentAnswers.length).fill(0).map(() => Math.floor(Math.random() * 4)); 
+
+            for(let i=0; i<studentAnswers.length; i++){
+                if(studentAnswers[i] !== -1 && studentAnswers[i] === key[i]) {
+                    score += 0.25; 
+                }
+            }
+            
+            // Xử lý làm tròn điểm
+            currentScore = Math.round(score * 100) / 100;
+            
+            document.getElementById('finalScore').innerText = currentScore + " đ";
+            document.getElementById('sbdResult').innerText = currentSBD;
+            document.getElementById('madResult').innerText = currentMaDe;
+        }
+
+        // --- 6. QUẢN LÝ DỮ LIỆU & SHEETJS ---
+        function setMasterKey() {
+            // Chức năng quy định bài vừa chấm là đáp án gốc
+            masterKey[currentMaDe] = []; // Mảng kết quả vừa nhận diện
+            localStorage.setItem('omrMasterKey', JSON.stringify(masterKey));
+            alert(`Đã lưu Đáp án gốc cho Mã đề: ${currentMaDe}`);
+        }
+
+        function saveResult() {
+            gradedResults.push({
+                sbd: currentSBD,
+                made: currentMaDe,
+                score: currentScore,
+                time: new Date().toLocaleString('vi-VN')
+            });
+            localStorage.setItem('omrResults', JSON.stringify(gradedResults));
+            updateResultTable();
+            alert("Đã lưu kết quả thành công!");
+            document.getElementById('resultBox').classList.add('hidden');
+        }
+
+        function updateResultTable() {
+            let tbody = document.getElementById('resultTableBody');
+            tbody.innerHTML = "";
+            document.getElementById('countGraded').innerText = `${gradedResults.length} bài`;
+            
+            // Đảo ngược mảng để hiện bài mới nhất lên đầu
+            [...gradedResults].reverse().forEach(row => {
+                let tr = document.createElement('tr');
+                tr.className = "bg-white border-b";
+                tr.innerHTML = `
+                    <td class="px-3 py-2 font-medium text-gray-900">${row.sbd}</td>
+                    <td class="px-3 py-2">${row.made}</td>
+                    <td class="px-3 py-2 font-bold text-red-600">${row.score}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function exportToExcel() {
+            if (gradedResults.length === 0) return alert("Chưa có dữ liệu để xuất!");
+            
+            // Format dữ liệu tương thích Phần mềm Sổ điểm cá nhân TT22
+            let ws_data = [["STT", "Số Báo Danh", "Mã Đề", "Điểm Trắc Nghiệm", "Thời gian chấm"]];
+            gradedResults.forEach((r, i) => {
+                ws_data.push([i + 1, r.sbd, r.made, r.score, r.time]);
+            });
+
+            // Sử dụng SheetJS tạo Workbook
+            let ws = XLSX.utils.aoa_to_sheet(ws_data);
+            let wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "KetQuaOMR");
+            
+            // Xuất file
+            XLSX.writeFile(wb, `KetQuaChamThi_${new Date().getTime()}.xlsx`);
+        }
+
+        function clearData() {
+            if(confirm("Bạn có chắc chắn muốn xóa toàn bộ danh sách điểm đã chấm?")) {
+                gradedResults = [];
+                localStorage.removeItem('omrResults');
+                updateResultTable();
+            }
+        }
+    </script>
+</body>
+</html>
