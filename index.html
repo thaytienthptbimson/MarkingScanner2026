@@ -71,6 +71,11 @@ canvas{max-width:100%}
 </div></details>
 
 <details><summary>2. Đáp án đúng theo mã đề</summary><div>
+ <!-- BỔ SUNG NÚT QUÉT ĐÁP ÁN ĐỘC LẬP TẠI ĐÂY -->
+ <div class="row" style="margin-bottom:8px">
+  <button class="go" style="padding:12px; font-size:1rem; background:var(--pri)" onclick="scanKeyMode=true; $('#cam').click()">📸 Quét phiếu làm đáp án</button>
+  <button class="alt" onclick="scanKeyMode=true; $('#gal').click()">Chọn ảnh đáp án</button>
+ </div>
  <div id="chips" class="chips"></div>
  <div id="kgrid" style="display:grid;gap:8px"></div>
  <small>Excel: mỗi cột là một mã đề, mỗi hàng là một câu (I.1, II.1a, III.1…).</small>
@@ -97,8 +102,8 @@ canvas{max-width:100%}
 
 <details open><summary>4. Chấm bài</summary><div>
  <div class="row">
-  <button class="go" onclick="$('#cam').click()">Chụp phiếu</button>
-  <button class="alt" onclick="$('#gal').click()">Chọn ảnh có sẵn</button>
+  <button class="go" onclick="scanKeyMode=false; $('#cam').click()">Chụp phiếu</button>
+  <button class="alt" onclick="scanKeyMode=false; $('#gal').click()">Chọn ảnh có sẵn</button>
  </div>
  <input id="cam" type="file" accept="image/*" capture="environment" hidden>
  <input id="gal" type="file" accept="image/*" multiple hidden>
@@ -132,6 +137,8 @@ canvas{max-width:100%}
 
 <script>
 const $ = s => document.querySelector(s), W = 1000, H = 1414, LS = 'omr2026';
+let scanKeyMode = false; // Biến kiểm soát chế độ quét đáp án
+
 // Cấu trúc điểm: n1/n2/n3 = số câu mỗi phần; s1/s3 = điểm mỗi câu Phần I / III. Phần II: 1 ý=0.1, 2 ý=0.25, 3 ý=0.5, 4 ý=1
 const PRE = { toan: { n1: 12, n2: 4, n3: 6, s1: .25, s3: .5 }, khac: { n1: 18, n2: 4, n3: 6, s1: .25, s3: .25 }, anh: { n1: 40, n2: 0, n3: 0, s1: .25, s3: 0 } };
 const P2PT = [0, .1, .25, .5, 1], P3ROWS = ['-', ',', ...'0123456789'];
@@ -211,7 +218,7 @@ const parseRoster = () => Object.fromEntries(S.roster.split('\n').map(l => l.tri
 const fillInfo = r => { const x = parseRoster()[r.sbd]; if (x) { r.name = x[0]; r.lop = x[1] } };
 function keyInfo() {
   const K = parseKeys(S.keys), P = PRE[S.subj];
-  $('#keyinfo').innerHTML = Object.keys(K).map(k => { const o = K[k], bad = o.p1.length != P.n1 || o.p2.length != P.n2 || o.p3.length != P.n3; return `<small class="${bad ? 'bad' : ''}">Mã ${esc(k)}: ${o.p1.length} / ${o.p2.length} / ${o.p3.length} câu${bad ? ` (cần ${P.n1} / ${P.n2} / ${P.n3})` : ''}</small>` }).join('<br>');
+  $('#keyinfo').innerHTML = Object.keys(K).map(k => { const o = K[k], bad = o.p1.length != P.n1 || o.p2.length != P.n2 || o.p3.length != P.n3; return `<small class="${bad ? 'bad' : ''}">Mã ${esc(k)}: ${o.p1.length} / ${o.p2.length} / ${o.p3.length} câu${bad ? ` (cần ${P.n1} / ${P.n2} /${P.n3})` : ''}</small>` }).join('<br>');
 }
 keyInfo();
 
@@ -249,19 +256,16 @@ function warp(cn) {
 }
 
 const cell = (b, i, j) => { const cw = b.w * W / b.c, ch = b.h * H / b.r; return [b.x * W + (j + .5) * cw, b.y * H + (i + .5) * ch, .3 * Math.min(cw, ch)] };
-// Ảnh tích phân: tính độ đen của mỗi ô tô gần như tức thì, không tạo Mat cho từng ô
 function fillAt(I, x, y, r) {
   r = Math.max(2, r * .8 | 0); const x0 = Math.max(0, x - r | 0), y0 = Math.max(0, y - r | 0), x1 = Math.min(W, x0 + 2 * r), y1 = Math.min(H, y0 + 2 * r), w = I.w, d = I.d;
   return (d[y1 * w + x1] - d[y0 * w + x1] - d[y1 * w + x0] + d[y0 * w + x0]) / (255 * Math.max(1, (x1 - x0) * (y1 - y0)));
 }
 const grid = (I, b) => Array.from({ length: b.r }, (_, i) => Array.from({ length: b.c }, (_, j) => fillAt(I, ...cell(b, i, j))));
-// -1: bỏ trống, -2: tô nhiều ô, >=0: chỉ số ô được chọn
 const pick = (v, thr) => { const m = Math.max(...v); if (m < thr) return -1; const i = v.indexOf(m); return v.some((x, k) => k != i && x >= thr && x > m * .75) ? -2 : i };
 
 function readSheet(cn) {
   const T = [], t = m => (T.push(m), m);
   try {
-    // Dùng kênh đỏ: mực in đỏ của phiếu biến mất, chỉ còn nét bút chì
     const s = t(cv.imread(cn)), pl = t(new cv.MatVector()); cv.split(s, pl);
     const R = t(pl.get(0)), bin = t(new cv.Mat());
     cv.GaussianBlur(R, R, new cv.Size(3, 3), 0);
@@ -291,7 +295,7 @@ function regrade(r) {
   draw(r);
 }
 
-// Vẽ kết quả lên ảnh: xanh = đúng, đỏ = sai, vòng xanh dương = đáp án đúng
+// Vẽ kết quả lên ảnh
 function draw(r) {
   const c = r.cv || (r.cv = document.createElement('canvas')); c.width = W; c.height = H;
   const x = c.getContext('2d'), cfg = getCfg(), K = r.K, P = PRE[S.subj];
@@ -339,25 +343,34 @@ async function addFile(f, show) {
   st('Đang đọc ô tô…'); await tick();
   const r = { base: w.base, ...readSheet(w.base), name: '', lop: '' }; fillInfo(r);
 
-  // --- BẮT ĐẦU CHÈN THÊM TÍNH NĂNG QUÉT MÃ ĐỀ 000 LÀM ĐÁP ÁN CHUẨN ---
-  if (r.made === '000') {
-    // Chuyển đổi dữ liệu quét được sang định dạng của chuỗi đáp án (S.keys)
-    const p1 = r.rd.p1.map(x => (!x || x === '?') ? '-' : x).join('');
-    const p2 = r.rd.p2.map(arr => [0, 1, 2, 3].map(j => (arr && arr[j] && arr[j] !== '?') ? arr[j] : '-').join('')).join(' ');
-    const p3 = r.rd.p3.map(x => (!x || x === '?') ? '-' : x).join('; ');
+  // --- LOGIC NHẬN DIỆN VÀ LƯU ĐÁP ÁN CHUẨN ---
+  if (scanKeyMode || r.made === '000') {
+    let m = r.made;
+    // Xử lý nếu quét không ra mã đề hoặc mã đề bị lỗi
+    if (!m || m.includes('?')) {
+        m = prompt('Không nhận diện được rõ Mã đề trên phiếu. Vui lòng nhập thủ công mã đề cho đáp án này:', '');
+        if (!m) {
+            st('Đã hủy nạp đáp án vì không có mã đề.', true);
+            return;
+        }
+        m = pad(m.trim(), getCfg().made.c);
+    }
 
-    // Cập nhật vào dữ liệu lưu trữ
-    S.keys = (S.keys + `\n\n#000\n${p1}\n${p2}\n${p3}`).trim();
-    save();
-    $('#keys').value = S.keys;
-    cur = '000'; // Đổi giao diện hiển thị sang tab mã đề 000 vừa quét
-    renderKeys();
-    keyInfo();
+    // Đẩy dữ liệu vào object cấu trúc chuẩn KM
+    const p1 = r.rd.p1.map(x => (!x || x === '?') ? '' : x);
+    const p2 = r.rd.p2.map(arr => [0, 1, 2, 3].map(j => (arr && arr[j] && arr[j] !== '?') ? arr[j] : ''));
+    const p3 = r.rd.p3.map(x => (!x || x === '?') ? '' : norm(x));
+
+    KM[m] = { p1, p2, p3 };
+    cur = m;
+    commit(); // Lưu cập nhật vào hệ thống
+    renderKeys(); // Vẽ lại giao diện đáp án
     
-    st('Đã nạp phiếu vừa quét làm đáp án chuẩn cho mã đề 000.', false);
-    return; // Dừng lại ở đây, KHÔNG chấm điểm và KHÔNG lưu phiếu này vào danh sách bài thi
+    st(`Đã nạp thành công đáp án chuẩn cho mã đề ${m}`, false);
+    scanKeyMode = false; // Tự động reset biến để đảm bảo an toàn
+    return; // Kết thúc sớm, không đưa vào danh sách chấm bài
   }
-  // --- KẾT THÚC ĐOẠN CHÈN THÊM ---
+  // -------------------------------------------
 
   regrade(r); recs.push(r); render();
   st(w.found ? 'Xong, điểm ' + fmt(r.score) + '. Kiểm tra lại tên, SBD, mã đề nếu có dấu “?”.' : 'Không thấy đủ 4 góc phiếu — hãy chụp rõ viền giấy trên nền tối.', !w.found);
@@ -376,7 +389,7 @@ function render() {
     recs.map((r, i) => `<tr><td>${i + 1}</td><td><img class="th" data-i="${i}" src="${r.url}"></td><td>${inp(i, 'name', 'Họ và tên', r.name)}<div class="mini">${inp(i, 'sbd', 'SBD', r.sbd, 3)}${inp(i, 'lop', 'Lớp', r.lop, 2)}${inp(i, 'made', 'Mã', r.made, 1.4)}</div></td><td><b>${fmt(r.score)}</b></td></tr>`).join('') + '</table>';
 }
 let vi = -1;
-function showResult(i) { // hiện ngay ảnh đã chấm: điểm, đúng/sai trên từng ô
+function showResult(i) { 
   const r = recs[i]; if (!r) return; vi = i; const c = $('#vcv'); c.width = W; c.height = H; c.getContext('2d').drawImage(r.cv, 0, 0);
   $('#vinfo').innerHTML = r.K ? `<b>${esc(r.name || 'Chưa có tên')}</b> ${esc(r.lop)} · SBD ${esc(r.sbd)} · Mã ${esc(r.made)}<br>Điểm <b class="big">${fmt(r.score)}</b> (I: ${fmt(r.parts[0])} · II: ${fmt(r.parts[1])} · III: ${fmt(r.parts[2])})` : `<b>Chưa có đáp án cho mã ${esc(r.made)}</b> — nhập đáp án ở mục 2, rồi sửa mã đề trong danh sách.`;
   $('#vw').hidden = false;
@@ -415,166 +428,4 @@ $('#grid').onclick = () => {
     for (let i = 0; i < b.r; i++) for (let j = 0; j < b.c; j++) { const [px, py] = cell(b, i, j); x.fillRect(px - 2, py - 2, 4, 4) }
   });
 };
-$('#reread').onclick = async () => { await ready; recs.forEach(r => { Object.assign(r, readSheet(r.base)); fillInfo(r); regrade(r) }); render(); st('Đã đọc lại ' + recs.length + ' phiếu.') };
-$('#reset').onclick = () => { S.cfg = $('#cfg').value = JSON.stringify(defCfg(), null, 1); save() };
-
-// ---------- Xuất / nhập Excel cho đáp án (mục 2) và danh sách học sinh (mục 3) ----------
-const pad = (v, n) => { const s = String(v).trim(); return /^\d+$/.test(s) && s.length < n ? s.padStart(n, '0') : s };
-const readXls = async f => { const wb = XLSX.read(await f.arrayBuffer()); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }) };
-const setField = (id, v) => { S[id] = $('#' + id).value = v; save(); keyInfo(); renderKeys(); loadRoster() };
-const dl = (rows, sheet, file, note) => {
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), sheet);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(note.map(x => [x])), 'Hướng dẫn'); XLSX.writeFile(wb, file);
-};
-
-// Đáp án: cột A = nhãn câu (I.1, II.1a, III.1), các cột sau = mỗi mã đề một cột
-$('#keyxls').onclick = () => {
-  const P = PRE[S.subj], K = parseKeys(S.keys), ms = Object.keys(K).length ? Object.keys(K) : ['101', '102'];
-  const rows = [['Câu', ...ms]], v = (m, f) => (K[m] ? f(K[m]) : '') || '';
-  for (let i = 0; i < P.n1; i++) rows.push(['I.' + (i + 1), ...ms.map(m => v(m, k => k.p1[i]))]);
-  for (let i = 0; i < P.n2; i++) for (let j = 0; j < 4; j++) rows.push(['II.' + (i + 1) + 'abcd'[j], ...ms.map(m => v(m, k => k.p2[i] && k.p2[i][j]))]);
-  for (let i = 0; i < P.n3; i++) rows.push(['III.' + (i + 1), ...ms.map(m => v(m, k => k.p3[i]))]);
-  dl(rows, 'Đáp án', 'dap-an-mau.xlsx', ['Mỗi cột là một mã đề (ô tiêu đề để dạng văn bản, ví dụ 247).', 'Phần I: A, B, C hoặc D. Phần II: Đ hoặc S. Phần III: số, dùng dấu phẩy cho số thập phân (1,5).', 'Số câu theo môn đang chọn ở mục 1.']);
-};
-$('#keyfile').onchange = async e => {
-  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try {
-    const a = await readXls(f), P = PRE[S.subj], n = getCfg().made.c, hd = a[0].slice(1).map(h => pad(h, n)), K = hd.map(() => ({ p1: [], p2: [], p3: [] }));
-    a.slice(1).forEach(r => {
-      const m = String(r[0]).toUpperCase().replace(/\s/g, '').match(/^(I{1,3})\.(\d+)([A-D])?$/); if (!m) return;
-      const q = m[2] - 1;
-      hd.forEach((_, k) => {
-        const raw = String(r[k + 1]).trim(), u = raw.toUpperCase();
-        if (m[1] == 'I') K[k].p1[q] = /^[ABCD]$/.test(u) ? u : '-';
-        else if (m[1] == 'II') { if (m[3]) (K[k].p2[q] = K[k].p2[q] || [])['ABCD'.indexOf(m[3])] = u == 'S' ? 'S' : u == 'Đ' || u == 'D' ? 'Đ' : '-' }
-        else K[k].p3[q] = norm(raw);
-      });
-    });
-    const txt = hd.map((h, k) => h && ['#' + h,
-      Array.from({ length: P.n1 }, (_, i) => K[k].p1[i] || '-').join(''),
-      Array.from({ length: P.n2 }, (_, i) => [0, 1, 2, 3].map(j => (K[k].p2[i] || [])[j] || '-').join('')).join(' '),
-      Array.from({ length: P.n3 }, (_, i) => K[k].p3[i] || '-').join('; ')].join('\n')).filter(Boolean).join('\n\n');
-    if (!txt) throw new Error('không thấy mã đề (hàng 1) hoặc nhãn câu (I.1, II.1a, III.1) ở cột A.');
-    if (S.keys.trim() && !confirm('Thay toàn bộ đáp án hiện có bằng file Excel?')) return;
-    setField('keys', txt); st('Đã nhập đáp án của ' + hd.filter(Boolean).length + ' mã đề.');
-  } catch (err) { st('Lỗi nhập Excel: ' + err.message, 1) }
-};
-
-// Danh sách học sinh: cột SBD và Họ và tên
-$('#rosxls').onclick = () => {
-  const L = Object.entries(parseRoster()).map(([k, v]) => [k, v[0], v[1]]);
-  dl([['SBD', 'Họ và tên', 'Lớp'], ...(L.length ? L : [['01000001', 'Nguyễn Văn A', '12A1'], ['01000002', 'Trần Thị B', '12A1']])], 'Học sinh', 'danh-sach-hoc-sinh.xlsx', ['Giữ cột SBD ở dạng văn bản để không mất số 0 đầu.', 'Xóa các dòng ví dụ trước khi nhập.']);
-};
-$('#rosfile').onchange = async e => {
-  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try {
-    const a = await readXls(f), h = a[0].map(x => String(x).toLowerCase());
-    let c1 = h.findIndex(x => /sbd|báo danh/.test(x)), c2 = h.findIndex(x => /tên/.test(x)), c3 = h.findIndex(x => /lớp/.test(x)); const hasH = c1 >= 0 || c2 >= 0;
-    if (c1 < 0) c1 = 0; if (c2 < 0) c2 = c1 == 0 ? 1 : 0; if (c3 < 0 && !hasH) c3 = 2;
-    const n = getCfg().sbd.c, L = a.slice(hasH ? 1 : 0).map(r => [pad(r[c1], n), String(r[c2] ?? '').trim(), c3 >= 0 ? String(r[c3] ?? '').trim() : '']).filter(x => x[0] && x[1]).map(x => x.join(';'));
-    if (!L.length) throw new Error('không đọc được dòng nào (cần cột SBD và Họ và tên).');
-    if (S.roster.trim() && !confirm('Thay toàn bộ danh sách hiện có bằng file Excel?')) return;
-    setField('roster', L.join('\n')); st('Đã nhập ' + L.length + ' học sinh.');
-  } catch (err) { st('Lỗi nhập Excel: ' + err.message, 1) }
-};
-
-// ---------- Nhập đáp án (mục 2) dạng ô ----------
-// Dữ liệu gốc vẫn là chuỗi S.keys; các ô chỉ là giao diện sửa chuỗi đó
-let KM = {}, cur = '';
-const ser = () => {
-  const P = PRE[S.subj];
-  return Object.keys(KM).map(m => {
-    const k = KM[m];
-    return ['#' + m,
-      Array.from({ length: P.n1 }, (_, i) => k.p1[i] || '-').join(''),
-      Array.from({ length: P.n2 }, (_, i) => [0, 1, 2, 3].map(j => (k.p2[i] || [])[j] || '-').join('')).join(' '),
-      Array.from({ length: P.n3 }, (_, i) => k.p3[i] || '-').join('; ')].join('\n');
-  }).join('\n\n');
-};
-const commit = () => { S.keys = $('#keys').value = ser(); save(); keyInfo() };
-
-function renderKeys() {
-  KM = parseKeys(S.keys); if (!KM[cur]) cur = Object.keys(KM)[0] || '';
-  const P = PRE[S.subj], k = KM[cur];
-  $('#chips').innerHTML = Object.keys(KM).map(m => `<button class="chip${m == cur ? ' on' : ''}" data-m="${esc(m)}">${esc(m)}</button>`).join('') + '<button class="chip" id="addm">＋ Mã đề</button>';
-  if (!k) { $('#kgrid').innerHTML = '<small>Chưa có mã đề. Bấm “＋ Mã đề” để thêm.</small>'; return }
-  let h = `<div class="row"><input id="q1" placeholder="Dán nhanh Phần I: ABCD…"><button class="alt" id="delm">Xóa mã ${esc(cur)}</button></div>`;
-  if (P.n1) h += `<h4>Phần I – ${P.n1} câu</h4><div class="g">` + Array.from({ length: P.n1 }, (_, i) => `<div class="q"><b>${i + 1}</b>` + [...'ABCD'].map(c => `<button data-t="1" data-i="${i}" data-v="${c}"${k.p1[i] == c ? ' class="on"' : ''}>${c}</button>`).join('') + '</div>').join('') + '</div>';
-  if (P.n2) h += `<h4>Phần II – ${P.n2} câu (4 ý a, b, c, d)</h4>` + Array.from({ length: P.n2 }, (_, i) => `<div class="q2"><b>Câu ${i + 1}</b>` + [0, 1, 2, 3].map(j => `<span>${'abcd'[j]}` + ['Đ', 'S'].map(v => `<button data-t="2" data-i="${i}" data-j="${j}" data-v="${v}"${(k.p2[i] || [])[j] == v ? ` class="on ${v == 'Đ' ? 'd' : 's'}"` : ''}>${v}</button>`).join('') + '</span>').join('') + '</div>').join('');
-  if (P.n3) h += `<h4>Phần III – ${P.n3} câu (số, dùng dấu phẩy: 1,5)</h4><div class="g">` + Array.from({ length: P.n3 }, (_, i) => `<label class="q3"><b>${i + 1}</b><input data-t="3" data-i="${i}" inputmode="text" value="${esc(k.p3[i] && k.p3[i] != '-' ? k.p3[i] : '')}"></label>`).join('') + '</div>';
-  $('#kgrid').innerHTML = h;
-}
-$('#subj').addEventListener('input', renderKeys);
-$('#chips').onclick = e => {
-  const b = e.target.closest('button'); if (!b) return;
-  if (b.id == 'addm') {
-    const m = prompt('Nhập mã đề (ví dụ 247):'); if (!m || !m.trim()) return;
-    cur = pad(m.trim(), getCfg().made.c); KM[cur] = KM[cur] || { p1: [], p2: [], p3: [] }; commit();
-  } else cur = b.dataset.m;
-  renderKeys();
-};
-$('#kgrid').onclick = e => {
-  const b = e.target.closest('button'); if (!b || !KM[cur]) return;
-  if (b.id == 'delm') { if (confirm('Xóa đáp án mã ' + cur + '?')) { delete KM[cur]; commit(); renderKeys() } return }
-  const d = b.dataset, k = KM[cur], i = +d.i;
-  if (d.t == '1') k.p1[i] = k.p1[i] == d.v ? '' : d.v;
-  else if (d.t == '2') { k.p2[i] = k.p2[i] || []; k.p2[i][+d.j] = k.p2[i][+d.j] == d.v ? '' : d.v }
-  else return;
-  commit(); renderKeys();
-};
-$('#kgrid').oninput = e => { if (e.target.dataset.t == '3') { KM[cur].p3[+e.target.dataset.i] = norm(e.target.value); commit() } };
-$('#kgrid').onchange = e => {
-  if (e.target.id != 'q1') return;
-  KM[cur].p1 = [...e.target.value.toUpperCase().replace(/[^ABCD]/g, '')]; commit(); renderKeys();
-};
-
-// ---------- Nhập SBD + họ tên (mục 3) dạng ô ----------
-let R = [];
-function loadRoster() { R = S.roster.split('\n').map(l => l.split(/[;\t]/).map(x => x.trim())).filter(a => a[0]).map(a => [a[0], a[1] || '', a[2] || '']); if (!R.length) R = [['', '', '']]; drawRoster() }
-const rcommit = () => { S.roster = $('#roster').value = R.filter(r => r[0].trim()).map(r => r.map(x => x.trim()).join(';')).join('\n'); save() };
-function drawRoster() {
-  $('#rgrid').innerHTML = R.map((r, i) => `<div class="rr"><span>${i + 1}</span><input data-r="${i}" data-c="0" value="${esc(r[0])}" inputmode="numeric" placeholder="SBD"><input data-r="${i}" data-c="1" value="${esc(r[1])}" placeholder="Họ và tên"><input data-r="${i}" data-c="2" value="${esc(r[2])}" placeholder="Lớp"><button data-del="${i}">✕</button></div>`).join('');
-}
-$('#rgrid').oninput = e => { const d = e.target.dataset; if (d.r != null) { R[+d.r][+d.c] = e.target.value; rcommit() } };
-$('#rgrid').onclick = e => { const b = e.target.closest('button'); if (!b) return; R.splice(+b.dataset.del, 1); if (!R.length) R = [['', '', '']]; rcommit(); drawRoster() };
-$('#addr').onclick = () => { R.push(['', '', '']); drawRoster(); const x = $('#rgrid').querySelectorAll('input'); x[x.length - 3].focus() };
-// Dán nhiều dòng từ Excel: điền xuống từ ô đang chọn
-$('#rgrid').onpaste = e => {
-  const t = (e.clipboardData || window.clipboardData).getData('text'); if (!/[\n\t]/.test(t) || e.target.dataset.r == null) return;
-  e.preventDefault(); const i = +e.target.dataset.r, c = +e.target.dataset.c, n = getCfg().sbd.c;
-  t.trim().split(/\r?\n/).forEach((l, k) => {
-    const a = l.split(/[\t;]/).map(x => x.trim()), o = R[i + k] || ['', '', ''];
-    R[i + k] = c == 0 ? [pad(a[0], n), a[1] || '', a[2] || ''] : c == 1 ? [o[0], a[0], a[1] || o[2]] : [o[0], o[1], a[0]];
-  });
-  rcommit(); drawRoster();
-};
-
-renderKeys(); loadRoster();
-
-// Báo trạng thái tải thư viện ngay khi mở trang
-st('Đang tải bộ xử lý ảnh…'); ready.then(() => st('Sẵn sàng chấm phiếu.'));
-
-// Tích hợp Service Worker (JavaScript.js) vào cùng 1 file bằng Blob
-const swCode = `
-// Lưu sẵn thư viện (OpenCV, Tesseract, SheetJS) để các lần mở sau tải gần như tức thì
-const C = 'omr-v1', HOSTS = ['docs.opencv.org', 'cdn.jsdelivr.net', 'cdnjs.cloudflare.com'];
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(clients.claim()));
-self.addEventListener('fetch', e => {
-  if (e.request.method != 'GET' || !HOSTS.includes(new URL(e.request.url).hostname)) return;
-  e.respondWith(caches.open(C).then(async c => {
-    const hit = await c.match(e.request); if (hit) return hit;
-    const res = await fetch(e.request); if (res.ok || res.type == 'opaque') c.put(e.request, res.clone());
-    return res;
-  }));
-});
-`;
-
-if ('serviceWorker' in navigator) {
-  const blob = new Blob([swCode], { type: 'text/javascript' });
-  const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl).catch(() => { });
-}
-
-</script>
-</body></html>
+$('#reread').onclick = async () => { await ready; recs.forEach(r => { Object.assign(
